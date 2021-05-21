@@ -5,7 +5,9 @@ abstract class Model<E : Any, D : Model<E, D>.Delta>(
 ) {
 
     abstract inner class Delta {
-        abstract fun logLikelihoodDelta(): Double
+        abstract val logJumpDensity: Double
+        abstract val logLikelihoodDelta: Double
+
         abstract fun accept()
     }
 

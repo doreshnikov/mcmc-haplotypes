@@ -9,7 +9,9 @@ import kotlin.math.pow
 
 class AlignedDeBruijnGraph private constructor(
     vertices: List<AlignedVertex>,
-    edges: AdjacencyList
+    edges: AdjacencyList,
+    val originLength: Int,
+    val k: Int
 ) : Graph(vertices, edges) {
 
     companion object {
@@ -70,9 +72,107 @@ class AlignedDeBruijnGraph private constructor(
             }
 
             val vertices = vertexFactory()
-            return AlignedDeBruijnGraph(vertices, edgeFactory(vertices.size))
+            return AlignedDeBruijnGraph(
+                vertices, edgeFactory(vertices.size),
+                alignments.maxOf { it.end }, k
+            )
         }
 
+    }
+
+    fun isRightmost(v: Int): Boolean {
+        return get(v).position + k == originLength
+    }
+
+    val sources = indices.filter { get(it).position == 0 }
+    val targets = indices.filter { isRightmost(it) }
+
+    @Suppress("DuplicatedCode")
+    fun cutErrorTails(): AlignedDeBruijnGraph {
+        val failIds = ArrayDeque<Int>()
+        val failed = MutableList(size) { false }
+        val rm = MutableList(size) { 0 }
+        val reversedRm = MutableList(size) { 0 }
+
+        for (id in indices) {
+            if (get(id).position > 0 && get(id).position + k < originLength) {
+                if (edges[id].isEmpty() || reversedEdges[id].isEmpty()) {
+                    failIds.addLast(id)
+                    failed[id] = true
+                }
+            }
+        }
+
+        while (failIds.isNotEmpty()) {
+            val id = failIds.removeFirst()
+            for (edge in edges[id]) {
+                reversedRm[edge.target]++
+                if (!failed[edge.target] && reversedEdges[edge.target].size == reversedRm[edge.target]) {
+                    failIds.addLast(edge.target)
+                    failed[edge.target] = true
+                }
+            }
+            for (edge in reversedEdges[id]) {
+                rm[edge.target]++
+                if (!failed[edge.target] && edges[edge.target].size == rm[edge.target]) {
+                    failIds.addLast(edge.target)
+                    failed[edge.target] = true
+                }
+            }
+        }
+
+        val idsMapper = HashMap<Int, Int>()
+        for (id in indices) {
+            if (!failed[id]) {
+                idsMapper[id] = idsMapper.size
+            }
+        }
+        val newEdges = MutableList(idsMapper.size) { mutableListOf<WeightedEdge>() }
+        for (source in indices) {
+            if (!failed[source]) {
+                for (edge in edges[source]) {
+                    if (!failed[edge.target]) {
+                        val s = idsMapper[source]!!
+                        val t = idsMapper[edge.target]!!
+                        newEdges[s].add(WeightedEdge(s, t, edge.weight))
+                    }
+                }
+            }
+        }
+        return AlignedDeBruijnGraph(
+            this.filterIndexed { i, v -> !failed[i] }, newEdges,
+            originLength, k
+        )
+    }
+
+    fun validate(): Int {
+        val visited = MutableList(size) { false }
+        val ok = MutableList(size) { 0 }
+
+        fun dfs(v: Int) {
+            visited[v] = true
+            if (get(v).position + k == originLength) {
+                ok[v] = 1
+            }
+
+            for (edge in edges[v]) {
+                if (!visited[edge.target]) {
+                    dfs(edge.target)
+                }
+                ok[v] += ok[edge.target]
+            }
+        }
+
+        var answer = 0
+        for (v in indices) {
+            if (!visited[v]) {
+                dfs(v)
+                if (get(v).position == 0) {
+                    answer += ok[v]
+                }
+            }
+        }
+        return answer
     }
 
     inner class Normalizer {
@@ -91,6 +191,7 @@ class AlignedDeBruijnGraph private constructor(
             }
         }
 
+        @Deprecated("There is no point in doing 2 additional normalizations to artificially reduce error")
         private fun horizontalNormalization(localEdges: AdjacencyList): AdjacencyList {
             val paths = mutableListOf<MutableList<WeightedEdge>>()
             val visited = MutableList(size) { false }
@@ -169,9 +270,13 @@ class AlignedDeBruijnGraph private constructor(
         }
 
         fun normalize(): AlignedDeBruijnGraph {
-            val pathNormalizedEdges = horizontalNormalization(edges)
+//            val pathNormalizedEdges = horizontalNormalization(edges)
+            val pathNormalizedEdges = edges
             val bucketNormalizedEdges = verticalNormalization(pathNormalizedEdges)
-            return AlignedDeBruijnGraph(this@AlignedDeBruijnGraph, bucketNormalizedEdges)
+            return AlignedDeBruijnGraph(
+                this@AlignedDeBruijnGraph, bucketNormalizedEdges,
+                originLength, k
+            )
         }
     }
 

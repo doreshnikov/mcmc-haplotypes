@@ -24,4 +24,10 @@ open class Edge(
         return true
     }
 
+    val reversed get() = Edge(target, source)
+
+    override fun toString(): String {
+        return "$source -> $target"
+    }
+
 }
