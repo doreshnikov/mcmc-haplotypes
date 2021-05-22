@@ -1,6 +1,6 @@
 package mcmc
 
-abstract class Model<E : Any, D : Model<E, D>.Delta>(
+abstract class Model<E : Any, D : Model<E, D, R>.Delta, R : Any>(
     val entity: E
 ) {
 
@@ -13,5 +13,7 @@ abstract class Model<E : Any, D : Model<E, D>.Delta>(
 
     abstract fun logLikelihood(): Double
     abstract fun proposeCandidate(): Delta
+
+    abstract fun extractResult(): R
 
 }

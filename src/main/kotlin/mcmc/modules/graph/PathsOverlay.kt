@@ -11,7 +11,7 @@ class PathsOverlay(
     private val distributionConfig: DistributionConfig,
     val alpha: Double
 //    private val paths: MutableList<Path>
-) : Model<AlignedDeBruijnGraph, PathsOverlay.PathsDelta>(entity) {
+) : Model<AlignedDeBruijnGraph, PathsOverlay.PathsDelta, List<Pair<String, Double>>>(entity) {
 
     private val weights = mutableMapOf<Edge, Double>()
     private val coverage = mutableMapOf<Edge, Double>()
@@ -229,10 +229,6 @@ class PathsOverlay(
         return coverageLikelihood + distribution.logProbability(paths.size)
     }
 
-    fun collectResult(): List<Pair<String, Double>> {
-        return paths.values.map { path -> path.collectDNA() to path.weight }
-    }
-
     companion object {
         // This all is also probably unusable now xD
         // kmp
@@ -376,6 +372,10 @@ class PathsOverlay(
             else ->
                 proposeCandidateTransfer()
         }
+    }
+
+    override fun extractResult(): List<Pair<String, Double>> {
+        return paths.map { it.value.collectDNA() to it.value.weight }
     }
 
     @Deprecated("Old version")

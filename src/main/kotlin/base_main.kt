@@ -6,16 +6,24 @@ import graph.AlignedDeBruijnGraph
 import mcmc.Engine
 import mcmc.modules.graph.DistributionConfig
 import mcmc.modules.graph.PathsOverlay
+import scoring.PrimitiveScorer
 import utils.Randseed
+import java.io.PrintWriter
 
 fun main() {
 
     val reference = generateReference(30)
     val haplotypes = MutationSimulator(reference, 1.2).generate(4)
-    haplotypes.forEach { println(it) }
+
+    val weightedHaplotypes = haplotypes.mapIndexed { i, it -> it to (i + 1).toDouble() / 10 }
+    PrintWriter("src/main/resources/_tmp/_reference").use { pw ->
+        weightedHaplotypes.forEach {
+            pw.println("${it.first} ${it.second}")
+        }
+    }
 
     val reads = ReadSimulator(
-        haplotypes.mapIndexed { i, it -> it to (i + 1).toDouble() / 10 },
+        weightedHaplotypes,
         500,
         Randseed.INSTANCE.uniformInteger(12, 15),
         0.01
@@ -36,7 +44,21 @@ fun main() {
     val engine = Engine(normalizedGraph, model)
     engine.simulate(10000)
 
-    val result = model.collectResult()
-    println(result)
+    val results = listOf(model.extractResult(), engine.bestResult!!)
+    results.forEachIndexed { idx, result ->
+        PrintWriter("src/main/resources/_tmp/my${idx}").use { pw ->
+            result.forEach {
+                pw.println("${it.first} ${it.second}")
+            }
+        }
+
+        println("==============")
+        val score = PrimitiveScorer().score(weightedHaplotypes, result)
+        for (i in weightedHaplotypes.indices) {
+            println(score[i].joinToString(" ") { it.toString().padStart(6) } +
+                    " -> " + weightedHaplotypes[i].second)
+        }
+        println(result.joinToString(" ") { String.format("%.4f", it.second) })
+    }
 
 }
