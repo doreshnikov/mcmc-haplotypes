@@ -3,4 +3,6 @@
 build/
 side-packages/
 
+src/main/resources/
+
 local.properties

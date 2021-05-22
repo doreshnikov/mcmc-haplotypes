@@ -11,7 +11,7 @@ class SnipsOnlyAligner(reference: Reference) : ReferenceAligner<PrimitiveAlignme
     MutationPolicy.SnipsOnly
 ) {
 
-    override fun align(read: String): PrimitiveAlignment {
+    private fun alignScore(read: String): Pair<PrimitiveAlignment, Int> {
         val (n, m) = Pair(reference.length, read.length)
         val scoring = matrixOf(n + 1, m + 1) { _, _ -> 0 }
 
@@ -27,7 +27,27 @@ class SnipsOnlyAligner(reference: Reference) : ReferenceAligner<PrimitiveAlignme
                 end = i
             }
         }
-        return PrimitiveAlignment(end - read.length, read)
+        return PrimitiveAlignment(end - read.length, read) to scoring[end][m]
+    }
+
+    private fun complementRead(read: String) = read.map { c ->
+        when (c) {
+            'A' -> 'T'
+            'C' -> 'G'
+            'G' -> 'C'
+            'T' -> 'A'
+            else -> c
+        }
+    }.joinToString("")
+
+    override fun align(read: String): PrimitiveAlignment {
+        val complement = complementRead(read)
+        val reads = listOf(read, complement, read.reversed(), complement.reversed())
+        val alignments = reads.map { alignScore(it) }
+
+        val res = alignments.maxByOrNull { it.second }!!
+//        println(res.second)
+        return res.first
     }
 
 }
