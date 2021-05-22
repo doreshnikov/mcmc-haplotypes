@@ -23,10 +23,10 @@ abstract class ReferenceAligner<A : Any>(
         }
 
         val substitutionMatrix = arrayOf(
-            arrayOf(-3, 3, 3, 3),
-            arrayOf(3, -3, 3, 3),
-            arrayOf(3, 3, -3, 3),
-            arrayOf(3, 3, 3, -3)
+            arrayOf(-5, 4, 4, 4),
+            arrayOf(4, -5, 4, 4),
+            arrayOf(4, 4, -5, 4),
+            arrayOf(4, 4, 4, -5)
         )
 
         fun substitutionPenalty(c1: Char, c2: Char) =
