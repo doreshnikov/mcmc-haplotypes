@@ -18,7 +18,8 @@ def read_data(filename):
 def earth_mover_distance(dist1, dist2):
     solver = pywraplp.Solver(
         'earth_mover_distance',
-        pywraplp.Solver.GLOP_LINEAR_PROGRAMMING)
+        pywraplp.Solver.GLOP_LINEAR_PROGRAMMING
+    )
 
     variables = dict()
 

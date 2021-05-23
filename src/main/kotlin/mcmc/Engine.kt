@@ -20,6 +20,7 @@ open class Engine<E : Any, R : Any>(
         iterations: Int, timeLimit: Int? = null, criteria: String = "iter",
         verboseLevel: Int = 0, traceBest: Boolean = false
     ) {
+        println("Initial logL: ${model.logLikelihood()}")
         val startTime = System.currentTimeMillis()
         var iterLimit = iterations
         var iter = 0

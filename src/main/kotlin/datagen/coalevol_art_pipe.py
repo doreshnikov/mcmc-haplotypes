@@ -49,6 +49,10 @@ for d in argv[1].split('/'):
         if s not in data.keys():
             data[s] = 0
         data[s] += 1
+    if len(data) > 20:
+        items = reversed(sorted(data.items(), key=lambda item: item[1]))
+        data = dict(list(items)[:20])
+        C = sum(data.values())
     for s in data.keys():
         data[s] /= C
 

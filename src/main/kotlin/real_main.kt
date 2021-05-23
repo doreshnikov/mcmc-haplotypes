@@ -79,7 +79,7 @@ fun main(args: Array<String>) {
         }
     }
 
-    val k = 6
+    val k = 3
     val sortedAlignments = alignments.sortedBy { it.start }
 //    if (sortedAlignments.first().start > 0) {
 //        val start = sortedAlignments.first().start
@@ -125,7 +125,7 @@ fun main(args: Array<String>) {
     println("Reference check: ${if (failed) "empty or failed" else "passed"}")
 //    if (failed) return
 
-    val lambda = 8.0
+    val lambda = 20.0
     val graph = AlignedDeBruijnGraph.build(alignments, k)
     println("Paths (mod MAX_LONG): ${graph.validate()}")
     val cutGraph = graph.cutErrorTails()
@@ -137,7 +137,7 @@ fun main(args: Array<String>) {
     val engine = Engine(normalizedGraph, model)
     val traceBest = true
     engine.simulate(
-        1, timeLimit = 60 * 60 * 1000, criteria = "tl",
+        1, timeLimit = 20 * 60 * 1000, criteria = "tl",
         verboseLevel = -1000, traceBest = traceBest
     )
 
