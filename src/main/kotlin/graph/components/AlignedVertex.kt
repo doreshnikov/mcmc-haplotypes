@@ -7,8 +7,8 @@ data class AlignedVertex(
     val data: String
 ) {
 
-    var pathCountRight: Long = 0
-    var pathCountLeft: Long = 0
+    var pathCountRight: Double = 0.0
+    var pathCountLeft: Double = 0.0
 
     lateinit var rightSelector: EnumeratedIntegerDistribution
     lateinit var leftSelector: EnumeratedIntegerDistribution

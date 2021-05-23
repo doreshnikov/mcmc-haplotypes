@@ -21,6 +21,9 @@ class Randseed private constructor(private var seed: Int) {
     fun randint() =
         rng.nextInt()
 
+    fun normal(mean: Double, sd: Double) =
+        NormalDistribution(rng, mean, sd)
+
     fun uniformReal(lower: Double, upper: Double) =
         UniformRealDistribution(rng, lower, upper)
 
@@ -52,7 +55,9 @@ class Randseed private constructor(private var seed: Int) {
 
     fun scoreIntegerEnum(scores: List<Double>): EnumeratedIntegerDistribution {
         val totalScore = scores.sum()
-        check(totalScore != 0.0) { "At least one option should be available" }
+        check(totalScore != 0.0) {
+            "At least one option should be available"
+        }
         return probIntegerEnum(scores.map { s -> s / totalScore })
     }
 

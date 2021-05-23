@@ -55,10 +55,19 @@ def earth_mover_distance(dist1, dist2):
 
 if __name__ == '__main__':
     os.chdir('../../resources')
-    expect = read_data(argv[1])
-    for fname in argv[2:]:
-        try:
-            data = read_data(fname)
-            print(f'{fname}: {earth_mover_distance(expect, data)}')
-        except Exception:
-            print(f'{fname}: No solution found wtf')
+    dd = argv[1]
+    for d in dd.split('/'):
+        print(f'Scoring {d}:')
+        expect = read_data(f'{d}/_origin')
+        for fname in os.listdir(d):
+            if fname[0] == '_' and fname != '_reference':
+                continue
+            if fname == '_reference':
+                data = ''.join(list(map(str.strip, open(f'{d}/{fname}').readlines())))
+                data = [(data, 1.0)]
+            else:
+                data = read_data(f'{d}/{fname}')
+            try:
+                print(f' - {fname}: {earth_mover_distance(expect, data)}')
+            except Exception:
+                print(f' - {fname}: No solution found')

@@ -145,9 +145,9 @@ class AlignedDeBruijnGraph private constructor(
         )
     }
 
-    fun validate(): Int {
+    fun validate(): Long {
         val visited = MutableList(size) { false }
-        val ok = MutableList(size) { 0 }
+        val ok = MutableList(size) { 0L }
 
         fun dfs(v: Int) {
             visited[v] = true
@@ -163,13 +163,13 @@ class AlignedDeBruijnGraph private constructor(
             }
         }
 
-        var answer = 0
+        var answer = 0L
         for (v in indices) {
             if (!visited[v]) {
                 dfs(v)
-                if (get(v).position == 0) {
-                    answer += ok[v]
-                }
+            }
+            if (get(v).position == 0) {
+                answer += ok[v]
             }
         }
         return answer

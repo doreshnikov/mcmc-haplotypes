@@ -16,7 +16,7 @@ class PathsOverlay(
     private val weights = mutableMapOf<Edge, Double>()
     private val coverage = mutableMapOf<Edge, Double>()
 
-    private val paths = mutableMapOf<PathId, Path>()
+    val paths = mutableMapOf<PathId, Path>()
     private val pathsBackRefs = mutableMapOf<Edge, MutableSet<PathId>>()
 
     private val common = mutableMapOf<PathId, MutableMap<PathId, Double>>()
@@ -31,14 +31,14 @@ class PathsOverlay(
 
     inner class Path(
         val vertices: Pathway,
-        private val initialWeight: Double,
+        var initialWeight: Double,
         val id: PathId = newPathId()
     ) {
 
         var weight = 0.0
             private set
         val edges = edges(vertices)
-        val impact = MutableList(vertices.size - 1) { 0.0 }
+//        val impact = MutableList(vertices.size - 1) { 0.0 }
 
         var leftSeparationPoints = HashMap<Int, Int>()
         var rightSeparationPoints = HashMap<Int, Int>()
@@ -62,25 +62,42 @@ class PathsOverlay(
             if (initialWeight != 0.0) {
                 plusAssign(initialWeight)
             }
+            common[id] = mutableMapOf()
+            edges.forEach { e ->
+                pathsBackRefs[e]?.forEach {
+                    if (it != id) {
+                        val com = common.getValue(id).getOrPut(it) { 0.0 } + weights.getValue(e)
+                        common[id]!![it] = com
+                        common[it]!![id] = com
+                    }
+                }
+            }
         }
 
         fun erase() {
             check(weight == 0.0) { "Can't delete paths with non-zero weights" }
+            common.remove(id)
             edges.forEach { e ->
-                pathsBackRefs[e]?.remove(id)
+                pathsBackRefs[e]!!.remove(id)
+                pathsBackRefs[e]!!.forEach {
+                    common[it]!!.remove(id)
+                }
+                if (pathsBackRefs[e]!!.isEmpty()) {
+                    pathsBackRefs.remove(e)
+                }
             }
             paths.remove(id)
         }
 
         operator fun plusAssign(w: Double) {
             weight += w
-            edges.forEachIndexed { i, e ->
-                val c = coverage.compute(e) { _, c -> (c ?: 0.0) + w }!!
-                pathsBackRefs[e]?.forEach { pid ->
-                    val path = paths.getValue(pid)
-                    path.impact[i] = min(c - weights.getValue(e), path.weight)
-                }
-            }
+//            edges.forEachIndexed { i, e ->
+//                val c = coverage.compute(e) { _, c -> (c ?: 0.0) + w }!!
+//                pathsBackRefs[e]?.forEach { pid ->
+//                    val path = paths.getValue(pid)
+//                    path.impact[i] = min(c - weights.getValue(e), path.weight)
+//                }
+//            }
         }
 
         operator fun minusAssign(w: Double) {
@@ -110,8 +127,8 @@ class PathsOverlay(
             if (entity.edges[v].isEmpty()) {
                 return mutableListOf(v)
             }
-            val options = entity.edges[v].map { Pair(it.target, it.weight) }
-            val u = Randseed.INSTANCE.probEnum(options).sample()
+            val next = entity.edges[v]
+            val u = next[Randseed.INSTANCE.scoreIntegerEnum(next.map { it.weight }).sample()].target
             return dfs(u).also { it.add(v) }
         }
 
@@ -135,10 +152,13 @@ class PathsOverlay(
 
     private val distribution = Randseed.INSTANCE.poisson(distributionConfig.penaltyLambda)
 
+    private fun edgeError(edge: Edge): Double {
+        return coverage.getOrDefault(edge, 0.0) - weights.getValue(edge)
+    }
+
     private fun logCoverageLikelihoodDelta(edge: Edge, delta: Double): Double {
-        val error = coverage.getOrDefault(edge, 0.0) - weights.getValue(edge)
         // e = c - w => -(c + d - w)^2 instead of -(c - w)^2 adds -d (2e + d)
-        return -delta * (2 * error + delta)
+        return -delta * (2 * edgeError(edge) + delta)
     }
 
     private fun logPathCountLikelihoodDelta(pathCountDelta: Int): Double {
@@ -222,6 +242,13 @@ class PathsOverlay(
         }
     }
 
+    inner class Fail : PathsDelta() {
+        override val logJumpDensity: Double = 0.0
+        override val logLikelihoodDelta: Double = 0.0
+
+        override fun accept() {}
+    }
+
     override fun logLikelihood(): Double {
         val coverageLikelihood = weights.keys.sumByDouble { e ->
             -(coverage.getOrDefault(e, 0.0) - weights.getValue(e)).pow(2)
@@ -251,25 +278,30 @@ class PathsOverlay(
         fun ln(value: Long): Double = ln(value.toDouble())
     }
 
-    private val vertexSelector = Randseed.INSTANCE.probIntegerEnum(
-        entity.sources.map { entity[it].pathCountRight.toDouble() }
+    private val sourceSelector = Randseed.INSTANCE.probIntegerEnum(
+        entity.sources.map { entity[it].pathCountRight }
     )
-    private val totalPaths = entity.sources.sumOf { entity[it].pathCountRight }
-    private val weightSelector = Randseed.INSTANCE.uniformReal(0.0, 1.0)
+    private val uniformWeightSelector = Randseed.INSTANCE.uniformReal(0.0, 1.0)
+    private val normalWeightSelector = Randseed.INSTANCE.normal(0.0, 1.0)
 
-    private fun selectWeight(from: Double, to: Double): Double {
-        val w = weightSelector.sample()
+    private fun selectUniformWeight(from: Double, to: Double): Double {
+        val w = uniformWeightSelector.sample()
         return from + w * (to - from)
     }
 
-    fun proposeCandidateNew(pNew: Double, pDel: Double): New {
+    private fun selectNormalWeight(mean: Double, sd: Double): Double {
+        val w = normalWeightSelector.sample()
+        return w * sd + mean
+    }
+
+    fun proposeCandidateNew(pNew: Double, pDel: Double): PathsDelta {
+        @Deprecated("messes all densities")
         fun selectTargetPathway(): Pathway {
-            val source = entity.sources[vertexSelector.sample()]
+            val source = entity.sources[sourceSelector.sample()]
             val pathway = mutableListOf(source)
 
             while (!entity.isRightmost(pathway.last())) {
                 val v = pathway.last()
-                // todo can incorporate distributions into vertices to avoid re-initializing every time
                 val next = entity[v].rightSelector.sample()
                 pathway.add(entity.edges[v][next].target)
             }
@@ -277,50 +309,162 @@ class PathsOverlay(
             return pathway
         }
 
+        fun selectClosePathway(path: Path): Pair<Pathway, Double> {
+            val right = Randseed.INSTANCE.randint() % 2
+            val next = MutableList(entity.size) { -1 }
+            val score = MutableList(entity.size) { 0.0 }
+            val prob = MutableList(entity.size) { 0.0 }
+            var cur = -1
+            val pathway = mutableListOf<Int>()
+            var g = 0.0
+            val common: Int
+
+            if (right % 2 == 0) {
+                val sep = path.rightSeparationPoints.entries.toList()
+                val point = sep[Randseed.INSTANCE.uniformInteger(0, sep.size - 1).sample()]
+                g -= ln(sep.size)
+                pathway.addAll(path.vertices.take(point.value))
+                common = point.value
+
+                fun walk(v: Int, depth: Int) {
+                    if (next[v] > -1) return
+                    for (e in entity.edges[v]) {
+                        walk(e.target, depth - 1)
+                    }
+                    if (entity.edges[v].isEmpty()) return
+
+                    val opts = entity.edges[v].map { exp(score[it.target] / depth) }
+                    val select = Randseed.INSTANCE.scoreIntegerEnum(opts)
+                    val idx = select.sample()
+                    val nedge = entity.edges[v][idx]
+                    next[v] = nedge.target
+                    score[v] = score[next[v]] - edgeError(nedge.locator)
+                    prob[v] = select.logProbability(idx)
+                }
+                walk(point.key, path.edges.size - point.value)
+                cur = point.key
+                while (cur != -1) {
+                    pathway.add(cur)
+                    g += prob[cur]
+                    cur = next[cur]
+                }
+            } else {
+                val sep = path.leftSeparationPoints.entries.toList()
+                val point = sep[Randseed.INSTANCE.uniformInteger(0, sep.size - 1).sample()]
+                g -= ln(sep.size)
+                common = path.edges.size - point.value
+
+                fun walk(v: Int, depth: Int) {
+                    if (next[v] > -1) return
+                    for (e in entity.reversedEdges[v]) {
+                        walk(e.target, depth - 1)
+                    }
+                    if (entity.reversedEdges[v].isEmpty()) return
+
+                    val opts = entity.reversedEdges[v].map { exp(score[it.target] / depth) }
+                    val select = Randseed.INSTANCE.scoreIntegerEnum(opts)
+                    val idx = select.sample()
+                    val nedge = entity.reversedEdges[v][idx]
+                    next[v] = nedge.target
+                    score[v] = score[next[v]] - edgeError(nedge.locator.reversed)
+                    prob[v] = select.logProbability(idx)
+                }
+                walk(point.key, point.value)
+                cur = point.key
+                while (cur != -1) {
+                    pathway.add(cur)
+                    g += prob[cur]
+                    cur = next[cur]
+                }
+                pathway.reverse()
+                pathway.addAll(path.vertices.drop(point.value + 1))
+            }
+            return pathway to g / (path.edges.size - common) + ln(0.5)
+        }
+
+        var gForward = 0.0
         val pathIds = paths.keys.filter {
             paths.getValue(it).weight >= 2 * alpha
         }
-        val pathSelector = Randseed.INSTANCE.uniformInteger(0, pathIds.size - 1)
-        val sourcePath = paths.getValue(pathIds[pathSelector.sample()])
-
-        var targetPathway = selectTargetPathway()
-        while (checkIfPresent(targetPathway) != null) {
-            targetPathway = selectTargetPathway()
+        if (pathIds.isEmpty()) {
+            return Fail()
         }
-        val delta = Randseed.INSTANCE.uniformReal(alpha, sourcePath.weight - alpha).sample()
+        val weights = pathIds.map { pid ->
+            val path = paths.getValue(pid)
+            val excess = path.edges.sumByDouble { e -> edgeError(e) }
+            val delta = -excess / path.edges.size
+            if (delta > 0) min(delta, path.weight) else delta
+        }
+        val pathSelector = Randseed.INSTANCE.scoreIntegerEnum(weights.map(::exp))
+        val idx = pathSelector.sample()
+        gForward += pathSelector.logProbability(idx)
+        val sourcePath = paths.getValue(pathIds[idx])
+
+//        var targetPathway = selectTargetPathway()
+        var (targetPathway, g) = selectClosePathway(sourcePath)
+        while (checkIfPresent(targetPathway) != null) {
+//            targetPathway = selectTargetPathway()
+            val res = selectClosePathway(sourcePath)
+            targetPathway = res.first
+            g = res.second
+        }
+        gForward += g
+
+//        val delta = Randseed.INSTANCE.uniformReal(alpha, sourcePath.weight - alpha).sample()
+        val wS = selectNormalWeight(0.0, 1.0)
+        var delta = wS + weights[idx]
+        var gW = normalWeightSelector.logDensity(wS)
+        if (delta < alpha) {
+            gW = ln(normalWeightSelector.cumulativeProbability(alpha - weights[idx]))
+            delta = alpha
+        } else if (delta > sourcePath.weight - alpha) {
+            gW = ln(1.0 - normalWeightSelector.cumulativeProbability(sourcePath.weight - alpha - weights[idx]))
+            delta = sourcePath.weight - alpha
+        }
+        gForward += gW
+
+        var gBackward = 0.0
+        gBackward = gForward // todo there's still the same problem as before
 
         return New(
             sourcePath, targetPathway, delta,
-            ln(pathIds.size) + ln(totalPaths - paths.size) + ln(sourcePath.weight - 2 * alpha) -
-                    ln(paths.size) - ln(paths.size + 1) +
-                    ln(pDel) - ln(pNew)
+            gBackward - gForward + ln(pDel) - ln(pNew)
         )
     }
 
-    fun proposeCandidateDel(pDel: Double, pNew: Double): Del {
+    fun proposeCandidateDel(pDel: Double, pNew: Double): PathsDelta {
         val pathIds = paths.keys.toList()
-        val pathSelector = Randseed.INSTANCE.uniformInteger(0, pathIds.size - 1)
-
-        val sourcePath = paths.getValue(pathIds[pathSelector.sample()])
-        var targetPathId = pathIds[pathSelector.sample()]
-        while (targetPathId == sourcePath.id) {
-            targetPathId = pathIds[pathSelector.sample()]
+        val weights = pathIds.map { pid ->
+            val path = paths.getValue(pid)
+            val delta = path.edges.sumByDouble { e -> edgeError(e) } / path.edges.size
+            delta / path.weight
         }
+        val pathSelector = Randseed.INSTANCE.scoreIntegerEnum(weights)
+
+        var gForward = 0.0
+        val idx = pathSelector.sample()
+        val sourcePath = paths.getValue(pathIds[idx])
+        gForward += pathSelector.logProbability(idx)
+
+        val targetWeights = pathIds.map {
+            common[sourcePath.id]!![it] ?: 0.0
+        }
+        val targetPathSelector = Randseed.INSTANCE.scoreIntegerEnum(targetWeights)
+        val targetIdx = targetPathSelector.sample()
+        val targetPathId = pathIds[targetIdx]
         val targetPath = paths.getValue(targetPathId)
+        gForward += targetPathSelector.logProbability(targetIdx)
 
-        val backwardsPathIds = paths.keys.filter {
-            paths.getValue(it).weight >= 2 * alpha && it != sourcePath.id
-        }
+        var gBackward = 0.0
+        gBackward = gForward // todo same problem - density of New << Del
+
         return Del(
             sourcePath, targetPath,
-            ln(paths.size) + ln(paths.size - 1) -
-                    ln(backwardsPathIds.size) - ln(totalPaths - paths.size - 1) -
-                    ln(sourcePath.weight + targetPath.weight - 2 * alpha) +
-                    ln(pNew) - ln(pDel)
+            gBackward - gForward + ln(pNew) - ln(pDel)
         )
     }
 
-    fun proposeCandidateTransfer(): Transfer {
+    fun proposeCandidateTransfer(): PathsDelta {
         val sourcePathIds = paths.keys.filter {
             paths.getValue(it).weight > alpha
         }
@@ -353,18 +497,19 @@ class PathsOverlay(
 
     override fun proposeCandidate(): Delta {
         fun pDel(pathCount: Int): Double {
-            return if (pathCount > 1) 1.0 / distributionConfig.penaltyLambda else 0.0
+            return if (pathCount > 1) 1.0 / (pathCount + distributionConfig.penaltyLambda) else 0.0
         }
 
         fun pNew(pathCount: Int): Double {
-            return if (pathCount > 1) 1.0 / (paths.size + distributionConfig.penaltyLambda) else 1.0
+//            if (pathCount > 20) return 0.0
+            return if (pathCount > 1) 1.0 / max(pathCount, 3) else 1.0
         }
 
         val pNewCurrent = pNew(paths.size)
         val pDelCurrent = pDel(paths.size)
 
         val option = Randseed.INSTANCE.uniformReal(0.0, 1.0).sample()
-        return when {
+        val result = when {
             option <= pNewCurrent ->
                 proposeCandidateNew(pNewCurrent, pDel(paths.size + 1))
             option <= pNewCurrent + pDelCurrent ->
@@ -372,89 +517,11 @@ class PathsOverlay(
             else ->
                 proposeCandidateTransfer()
         }
+        return if (result is Fail) proposeCandidate() else result
     }
 
     override fun extractResult(): List<Pair<String, Double>> {
         return paths.map { it.value.collectDNA() to it.value.weight }
-    }
-
-    @Deprecated("Old version")
-    fun proposeCandidateThisDoesntWork(): PathsDelta {
-        val averageImpacts = paths.mapValues { (_, p) ->
-            p.impact.sumByDouble(::impactScore) / p.impact.size
-        }
-        val entries = averageImpacts.entries
-        val pid = Randseed.INSTANCE.scoreEnum(entries.map { it.key }, entries.map { it.value }).sample()
-        val sourcePath = paths.getValue(pid)
-
-        val prefixes = mutableListOf(0.0)
-        for (i in sourcePath.impact) {
-            prefixes.add(prefixes.last() + i)
-        }
-        val suffixes = prefixes.map { prefixes.last() - it }
-
-        val prefixAverages = (1 until prefixes.size - 1).map { i -> prefixes[i] / i }
-        val suffixAverages = (1 until suffixes.size - 1).map { i -> suffixes[i] / (suffixes.size - i) }
-        var splitPoint = Randseed.INSTANCE.scoreIntegerEnum((prefixAverages + suffixAverages).map(::abs)).sample()
-
-        if (splitPoint >= prefixAverages.size) {
-            splitPoint -= prefixAverages.size
-            val delta = min(scoreToDelta(suffixAverages[splitPoint]), sourcePath.weight)
-            splitPoint++
-
-            fun dfs(v: Int): Pair<Double, MutableList<Int>> {
-                val options = entity.edges[v].map { e ->
-                    val tail = dfs(e.target)
-                    val impact = min(coverage.getOrDefault(e.locator, 0.0) - e.weight, e.weight)
-                    impactScore(impact) + tail.first to tail.second
-                }
-                if (options.isEmpty()) {
-                    return 0.0 to mutableListOf(v)
-                }
-                return Randseed.INSTANCE.scoreEnum(
-                    options,
-                    options.map { exp(transferOptionLogLikelihood(delta, it.first)) }
-                ).sample().also { it.second.add(v) }
-            }
-
-            val tail = dfs(sourcePath.vertices[splitPoint])
-            tail.second.reverse()
-//            return Transfer(
-//                sourcePath,
-//                sourcePath.vertices.take(splitPoint) + tail.second,
-//                sign(delta) * Randseed.INSTANCE.uniformReal(
-//                    0.0, min(abs(delta), abs(scoreToDelta(tail.first)))
-//                ).sample()
-//            )
-        } else {
-            val delta = min(scoreToDelta(prefixAverages[splitPoint]), sourcePath.weight)
-            splitPoint++
-
-            fun dfs(v: Int): Pair<Double, MutableList<Int>> {
-                val options = entity.reversedEdges[v].map { e ->
-                    val head = dfs(e.target)
-                    val impact = min(coverage.getOrDefault(e.locator.reversed, 0.0) - e.weight, e.weight)
-                    impactScore(impact) + head.first to head.second
-                }
-                if (options.isEmpty()) {
-                    return 0.0 to mutableListOf(v)
-                }
-                return Randseed.INSTANCE.scoreEnum(
-                    options,
-                    options.map { exp(transferOptionLogLikelihood(delta, it.first)) }
-                ).sample().also { it.second.add(v) }
-            }
-
-            val head = dfs(sourcePath.vertices[splitPoint])
-//            return Transfer(
-//                sourcePath,
-//                head.second + sourcePath.vertices.drop(splitPoint + 1),
-//                sign(delta) * Randseed.INSTANCE.uniformReal(
-//                    0.0, min(abs(delta), abs(scoreToDelta(head.first)))
-//                ).sample()
-//            )
-        }
-        error("This function is deprecated")
     }
 
 }

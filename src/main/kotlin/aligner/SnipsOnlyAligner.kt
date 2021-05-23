@@ -27,7 +27,8 @@ class SnipsOnlyAligner(reference: Reference) : ReferenceAligner<PrimitiveAlignme
                 end = i
             }
         }
-        return PrimitiveAlignment(end - read.length, read) to scoring[end][m]
+        val full = scoring[end][m] == 5 * read.length
+        return PrimitiveAlignment(end - read.length, read, full) to scoring[end][m]
     }
 
     private fun complementRead(read: String) = read.map { c ->

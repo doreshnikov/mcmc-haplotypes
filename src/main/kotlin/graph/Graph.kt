@@ -46,43 +46,48 @@ abstract class Graph(
     }
 
     fun precalcPathCounts() {
-        fun dfsForward(v: Int) {
-            if (get(v).pathCountRight != 0L) return
-            if (edges[v].isEmpty()) {
-                get(v).pathCountRight = 1
-            } else {
-                for (e in edges[v]) {
-                    dfsForward(e.target)
-                    get(v).pathCountRight += get(e.target).pathCountRight
-                }
-                get(v).rightSelector = Randseed.INSTANCE.scoreIntegerEnum(
-                    edges[v].map { get(it.target).pathCountRight.toDouble() }
-                )
-            }
-        }
-
-        fun dfsBackward(v: Int) {
-            if (get(v).pathCountLeft != 0L) return
-            if (reversedEdges[v].isEmpty()) {
-                get(v).pathCountLeft = 1
-            } else {
-                for (e in reversedEdges[v]) {
-                    dfsBackward(e.target)
-                    get(v).pathCountLeft += get(e.target).pathCountLeft
-                }
-                get(v).leftSelector = Randseed.INSTANCE.scoreIntegerEnum(
-                    reversedEdges[v].map { get(it.target).pathCountLeft.toDouble() }
-                )
-            }
-        }
-
         forEach {
-            it.pathCountLeft = 0L
-            it.pathCountRight = 0L
+            it.pathCountLeft = 0.0
+            it.pathCountRight = 0.0
         }
-        indices.forEach {
-            dfsForward(it)
-            dfsBackward(it)
+
+        val groups = indices.groupBy { get(it).position }
+        val maxPos = groups.keys.maxOrNull()!!
+        for (i in maxPos downTo 0) {
+            val group = groups.getValue(i)
+            var total = 0.0
+            for (v in group) {
+                var opts = edges[v].map { e ->
+                    get(e.target).pathCountRight
+                }
+                if (opts.isEmpty()) {
+                    opts = listOf(1.0)
+                }
+                get(v).pathCountRight = opts.sum()
+                get(v).rightSelector = Randseed.INSTANCE.scoreIntegerEnum(opts)
+                total += get(v).pathCountRight
+            }
+            for (v in group) {
+                get(v).pathCountRight /= total
+            }
+        }
+        for (i in 0..maxPos) {
+            val group = groups.getValue(i)
+            var total = 0.0
+            for (v in group) {
+                var opts = reversedEdges[v].map { e ->
+                    get(e.target).pathCountLeft
+                }
+                if (opts.isEmpty()) {
+                    opts = listOf(1.0)
+                }
+                get(v).pathCountLeft = opts.sum()
+                get(v).leftSelector = Randseed.INSTANCE.scoreIntegerEnum(opts)
+                total += get(v).pathCountLeft
+            }
+            for (v in group) {
+                get(v).pathCountLeft /= total
+            }
         }
     }
 

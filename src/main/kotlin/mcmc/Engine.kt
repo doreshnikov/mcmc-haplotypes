@@ -1,7 +1,7 @@
 package mcmc
 
+import mcmc.modules.graph.PathsOverlay
 import utils.Randseed
-import kotlin.math.exp
 import kotlin.math.ln
 
 open class Engine<E : Any, R : Any>(
@@ -16,20 +16,65 @@ open class Engine<E : Any, R : Any>(
     var bestResult: R? = null
     var bestLogLikelihood: Double = Double.NEGATIVE_INFINITY
 
-    fun simulate(iterations: Int) {
-        repeat(iterations) {
+    fun simulate(
+        iterations: Int, timeLimit: Int? = null, criteria: String = "iter",
+        verboseLevel: Int = 0, traceBest: Boolean = false
+    ) {
+        val startTime = System.currentTimeMillis()
+        var iterLimit = iterations
+        var iter = 0
+        while (iter < iterLimit) {
             val candidate = model.proposeCandidate()
-            val logAcceptanceRate = candidate.logLikelihoodDelta + candidate.logJumpDensity
-            if (ln(distribution.sample()) < logAcceptanceRate) {
+            val logLD = candidate.logLikelihoodDelta
+            val logJD = candidate.logJumpDensity
+            val logAcceptanceRate = logLD + logJD
+            val accept = ln(distribution.sample()) < logAcceptanceRate
+            if (accept) {
                 candidate.accept()
-                val logL = model.logLikelihood()
-                if (logL > bestLogLikelihood) {
-                    bestLogLikelihood = logL
-                    bestResult = model.extractResult()
+                if (traceBest) {
+                    val logL = model.logLikelihood()
+                    if (logL > bestLogLikelihood) {
+                        bestLogLikelihood = logL
+                        bestResult = model.extractResult()
+                    }
                 }
-                println("Iteration $it: log likelihood ${model.logLikelihood()}")
-            } else {
-                println("Iteration $it: candidate rejected with AR of ${exp(logAcceptanceRate)}")
+            }
+            val timePassed = System.currentTimeMillis() - startTime
+
+            if (verboseLevel != 0) {
+                val report = """Iteration $iter:
+ - logL : ${model.logLikelihood()}
+ - paths: ${(model as PathsOverlay).paths.size}
+ - time : ${timePassed / 1000}s
+ - logLD: $logLD
+ - logJD: $logJD
+ - acc  : $accept ${candidate.javaClass.canonicalName.split(".").last()}"""
+                when (verboseLevel) {
+                    1 -> if (accept) println(report)
+                    2 -> println(report)
+                    else -> if ((iter + 1) % -verboseLevel == 0) {
+                        println(
+                            """Iteration ${(iter + 1) / -verboseLevel} x ${-verboseLevel}:
+ - logL : ${model.logLikelihood()}
+ - paths: ${(model as PathsOverlay).paths.size}"""
+                        )
+                    }
+                }
+            }
+
+            iter++
+            when (criteria) {
+                "tl" -> {
+                    if (timePassed >= timeLimit!!) return
+                    if (iter == iterLimit) iterLimit *= 2
+                }
+                "both" -> if (iter == iterLimit) {
+                    if (timePassed >= timeLimit!!) return
+                    iterLimit++
+                }
+                "any" -> {
+                    if (timePassed >= timeLimit!!) return
+                }
             }
         }
     }
