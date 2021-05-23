@@ -18,6 +18,17 @@ class Randseed private constructor(private var seed: Int) {
             _rng.setSeed(seed)
         }
 
+    fun <T> shuffle(list: MutableList<T>) {
+        val dist = uniformInteger(0, list.size - 1);
+        repeat(list.size) {
+            val i = dist.sample()
+            val j = dist.sample()
+            val t = list[i]
+            list[i] = list[j]
+            list[j] = t
+        }
+    }
+
     fun randint() =
         rng.nextInt()
 

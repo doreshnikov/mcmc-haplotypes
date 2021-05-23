@@ -385,14 +385,33 @@ class PathsOverlay(
         var gForward = 0.0
         val pathIds = paths.keys.filter {
             paths.getValue(it).weight >= 2 * alpha
-        }
+        }.toMutableList()
         if (pathIds.isEmpty()) {
             return Fail()
         }
+        val dropPathIds = Randseed.INSTANCE.randint() % 2 == 0
+        if (dropPathIds) {
+            Randseed.INSTANCE.shuffle(pathIds)
+            val ok = 5000000 / entity.originLength
+            if (ok < pathIds.size) {
+                pathIds.dropLast(pathIds.size - ok)
+            }
+        }
+
+        val ok = 5000000 / pathIds.size
         val weights = pathIds.map { pid ->
             val path = paths.getValue(pid)
-            val excess = path.edges.sumByDouble { e -> edgeError(e) }
-            val delta = -excess / path.edges.size
+            val delta = if (dropPathIds && ok < path.edges.size) {
+                var accum = 0.0
+                val dist = Randseed.INSTANCE.uniformInteger(0, path.edges.size - 1)
+                repeat(ok) {
+                    val idx = dist.sample()
+                    accum -= edgeError(path.edges[idx])
+                }
+                accum / ok
+            } else {
+                -path.edges.sumByDouble { e -> edgeError(e) } / path.edges.size
+            }
             if (delta > 0) min(delta, path.weight) else delta
         }
         val pathSelector = Randseed.INSTANCE.scoreIntegerEnum(weights.map(::exp))
@@ -402,11 +421,16 @@ class PathsOverlay(
 
 //        var targetPathway = selectTargetPathway()
         var (targetPathway, g) = selectClosePathway(sourcePath)
+        var retries = 5
         while (checkIfPresent(targetPathway) != null) {
 //            targetPathway = selectTargetPathway()
             val res = selectClosePathway(sourcePath)
             targetPathway = res.first
             g = res.second
+            retries--
+            if (retries == 0) {
+                return Fail()
+            }
         }
         gForward += g
 
@@ -425,10 +449,11 @@ class PathsOverlay(
 
         var gBackward = 0.0
         gBackward = gForward // todo there's still the same problem as before
+        val gTotal = gBackward - gForward + ln(pDel) - ln(pNew)
 
         return New(
             sourcePath, targetPathway, delta,
-            gBackward - gForward + ln(pDel) - ln(pNew)
+            selectNormalWeight(gTotal / 2, abs(gTotal))
         )
     }
 
@@ -457,58 +482,80 @@ class PathsOverlay(
 
         var gBackward = 0.0
         gBackward = gForward // todo same problem - density of New << Del
+        val gTotal = gBackward - gForward + ln(pNew) - ln(pDel)
 
         return Del(
             sourcePath, targetPath,
-            gBackward - gForward + ln(pNew) - ln(pDel)
+            selectNormalWeight(gTotal / 2, abs(gTotal))
         )
     }
 
     fun proposeCandidateTransfer(): PathsDelta {
+        val weights = paths.mapValues {
+            val path = it.value
+            val delta = -path.edges.sumByDouble { e -> edgeError(e) } / path.edges.size
+            if (delta > 0) min(delta, path.weight) else delta
+        }
+
         val sourcePathIds = paths.keys.filter {
             paths.getValue(it).weight > alpha
         }
-        val sourcePathSelector = Randseed.INSTANCE.uniformInteger(0, sourcePathIds.size - 1)
+        if (sourcePathIds.isEmpty()) return Fail()
+        val sourceWeights = sourcePathIds.map { weights.getValue(it) }
+        val sourcePathSelector = Randseed.INSTANCE.scoreIntegerEnum(sourceWeights.map(::exp))
         val sourcePath = paths.getValue(sourcePathIds[sourcePathSelector.sample()])
 
-        val pathIds = paths.keys.toList()
-        val pathSelector = Randseed.INSTANCE.uniformInteger(0, pathIds.size - 1)
-        var targetPathId = pathIds[pathSelector.sample()]
+        val targetPathIds = paths.keys.toList()
+        val targetWeights = targetPathIds.map { weights.getValue(it) }
+        val pathSelector = Randseed.INSTANCE.scoreIntegerEnum(targetWeights.map { exp(-it) })
+        var targetPathId = targetPathIds[pathSelector.sample()]
         while (targetPathId == sourcePath.id) {
-            targetPathId = pathIds[pathSelector.sample()]
+            targetPathId = targetPathIds[pathSelector.sample()]
         }
         val targetPath = paths.getValue(targetPathId)
 
-        val delta = Randseed.INSTANCE.uniformReal(0.0, sourcePath.weight - alpha).sample()
-        var newPotentialSources = 0
-        if (targetPath.weight <= alpha && targetPath.weight + delta > alpha) {
-            newPotentialSources += 1
+
+//        val delta = Randseed.INSTANCE.uniformReal(0.0, sourcePath.weight - alpha).sample()
+        val expect = (weights.getValue(targetPathId) - weights.getValue(sourcePath.id)) / 2
+        val sd = max(alpha, (weights.getValue(targetPathId) + weights.getValue(sourcePath.id)) / 2)
+        val wSelector = Randseed.INSTANCE.normal(expect, sd)
+        var delta = wSelector.sample()
+        if (delta < 0) {
+            delta = min(sd, (sourcePath.weight - alpha) / 2)
         }
-        if (sourcePath.weight - delta <= alpha) {
-            newPotentialSources -= 1
+        if (delta > sourcePath.weight - alpha) {
+            delta = sourcePath.weight - alpha
         }
+//        var newPotentialSources = 0
+//        if (targetPath.weight <= alpha && targetPath.weight + delta > alpha) {
+//            newPotentialSources += 1
+//        }
+//        if (sourcePath.weight - delta <= alpha) {
+//            newPotentialSources -= 1
+//        }
 
         return Transfer(
             sourcePath, targetPath, delta,
-            ln(sourcePathIds.size) + ln(sourcePath.weight - alpha) -
-                    ln(sourcePathIds.size + newPotentialSources) - ln(targetPath.weight + delta - alpha)
-        )
+            ln(sourcePath.weight - alpha) - ln(targetPath.weight + delta - alpha)
+        ) // todo this g/g also needs tuning ofc
     }
+
+    private val proposer = Randseed.INSTANCE.uniformReal(0.0, 1.0)
 
     override fun proposeCandidate(): Delta {
         fun pDel(pathCount: Int): Double {
-            return if (pathCount > 1) 1.0 / (pathCount + distributionConfig.penaltyLambda) else 0.0
+            return if (pathCount > 1) 0.5 / distributionConfig.penaltyLambda else 0.0
         }
 
         fun pNew(pathCount: Int): Double {
 //            if (pathCount > 20) return 0.0
-            return if (pathCount > 1) 1.0 / max(pathCount, 3) else 1.0
+            return if (pathCount > 1) 0.5 / max(pathCount, 3) else 1.0
         }
 
         val pNewCurrent = pNew(paths.size)
         val pDelCurrent = pDel(paths.size)
 
-        val option = Randseed.INSTANCE.uniformReal(0.0, 1.0).sample()
+        val option = proposer.sample()
         val result = when {
             option <= pNewCurrent ->
                 proposeCandidateNew(pNewCurrent, pDel(paths.size + 1))

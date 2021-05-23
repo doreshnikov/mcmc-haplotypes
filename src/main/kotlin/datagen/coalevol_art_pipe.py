@@ -69,19 +69,29 @@ for d in argv[1].split('/'):
         os.system(f'{cmd} >/dev/null')
 
     total = []
-    for i in range(len(data)):
-        with open(f'{d}/reads_{i}.fq') as reads:
-            lines = list(map(str.strip, reads.readlines()))
-        idx = 1
-        while idx < len(lines):
-            total.append(lines[idx])
-            idx += 4
+    if not args.errfree:
+        for i in range(len(data)):
+            with open(f'{d}/reads_{i}.fq') as reads:
+                lines = list(map(str.strip, reads.readlines()))
+            idx = 1
+            while idx < len(lines):
+                total.append(lines[idx])
+                idx += 4
+    else:
+        for i in range(len(data)):
+            with open(f'{d}/reads_{i}_errFree.sam') as reads:
+                lines = list(map(str.strip, reads.readlines()))
+            for line in lines:
+                if line[0] == '@':
+                    continue
+                total.append(line.split('\t')[-2])
+
     shuffle(total)
     with open(f'{d}/_reads', 'w') as all_reads:
         for read in total:
             print(read, file=all_reads)
 
-    os.system(f'g++ ../kotlin/aligner/edlib_aligner.cpp -std=c++17 -ledlib -o {align_exe}')
+    os.system(f'g++ ../kotlin/aligner/edlib_aligner.cpp -std=c++17 -ledlib -lpthread -o {align_exe}')
     os.system(f'{align_exe} {d}')
 
     if not args.noclean:

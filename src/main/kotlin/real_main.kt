@@ -69,43 +69,47 @@ fun main(args: Array<String>) {
             it.lines().forEach { line ->
                 val (read, start) = line.split(" ")
                 val s = start.toInt()
-                alignments.add(PrimitiveAlignment(s, read, read == reference.subSequence(s, s + read.length)))
+                alignments.add(
+                    PrimitiveAlignment(
+                        s, read,
+                        read == reference.subSequence(s, s + read.length)
+                    )
+                )
             }
         }
     }
 
     val k = 6
-
     val sortedAlignments = alignments.sortedBy { it.start }
-    if (sortedAlignments.first().start > 0) {
-        val start = sortedAlignments.first().start
-        for (i in sortedAlignments.indices) {
-            if (sortedAlignments[i].start > start) {
-                break
-            }
-            alignments.add(
-                PrimitiveAlignment(
-                    0, reference.substring(0 until start) +
-                            sortedAlignments[i].read.substring(0 until k - 1), false
-                )
-            )
-        }
-    }
-    if (sortedAlignments.last().end < reference.length) {
-        val end = sortedAlignments.last().end
-        for (i in sortedAlignments.indices.reversed()) {
-            if (sortedAlignments[i].end < end) {
-                break
-            }
-            val readSize = sortedAlignments[i].read.length
-            alignments.add(
-                PrimitiveAlignment(
-                    end - k, sortedAlignments[i].read.substring(readSize - k + 1 until readSize) +
-                            reference.substring(end until reference.length), false
-                )
-            )
-        }
-    }
+//    if (sortedAlignments.first().start > 0) {
+//        val start = sortedAlignments.first().start
+//        for (i in sortedAlignments.indices) {
+//            if (sortedAlignments[i].start > start) {
+//                break
+//            }
+//            alignments.add(
+//                PrimitiveAlignment(
+//                    0, reference.substring(0 until start) +
+//                            sortedAlignments[i].read.substring(0 until k - 1), false
+//                )
+//            )
+//        }
+//    }
+//    if (sortedAlignments.last().end < reference.length) {
+//        val end = sortedAlignments.last().end
+//        for (i in sortedAlignments.indices.reversed()) {
+//            if (sortedAlignments[i].end < end) {
+//                break
+//            }
+//            val readSize = sortedAlignments[i].read.length
+//            alignments.add(
+//                PrimitiveAlignment(
+//                    end - k, sortedAlignments[i].read.substring(readSize - k + 1 until readSize) +
+//                            reference.substring(end until reference.length), false
+//                )
+//            )
+//        }
+//    }
 
     val referenceFilter = sortedAlignments.filter { it.full }
     var failed = false
@@ -118,9 +122,10 @@ fun main(args: Array<String>) {
             failed = true
         }
     }
-    if (failed) return
+    println("Reference check: ${if (failed) "empty or failed" else "passed"}")
+//    if (failed) return
 
-    val lambda = 200.0
+    val lambda = 8.0
     val graph = AlignedDeBruijnGraph.build(alignments, k)
     println("Paths (mod MAX_LONG): ${graph.validate()}")
     val cutGraph = graph.cutErrorTails()
@@ -132,7 +137,7 @@ fun main(args: Array<String>) {
     val engine = Engine(normalizedGraph, model)
     val traceBest = true
     engine.simulate(
-        1, timeLimit = 20 * 60 * 1000, criteria = "tl",
+        1, timeLimit = 60 * 60 * 1000, criteria = "tl",
         verboseLevel = -1000, traceBest = traceBest
     )
 
