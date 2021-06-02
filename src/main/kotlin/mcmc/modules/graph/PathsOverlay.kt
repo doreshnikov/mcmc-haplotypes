@@ -9,7 +9,8 @@ import kotlin.math.*
 class PathsOverlay(
     entity: AlignedDeBruijnGraph,
     private val distributionConfig: DistributionConfig,
-    val alpha: Double
+    val alpha: Double,
+    val maxHandleLength: Int
 //    private val paths: MutableList<Path>
 ) : Model<AlignedDeBruijnGraph, PathsOverlay.PathsDelta, List<Pair<String, Double>>>(entity) {
 
@@ -37,11 +38,19 @@ class PathsOverlay(
 
         var weight = 0.0
             private set
-        val edges = edges(vertices)
-//        val impact = MutableList(vertices.size - 1) { 0.0 }
+        private val totalEdgesWeight: Double
+        private val verticesSet = HashSet(vertices)
 
-        var leftSeparationPoints = HashMap<Int, Int>()
-        var rightSeparationPoints = HashMap<Int, Int>()
+        val excess: Double
+            get() = min(weight, weight * edges.size - totalEdgesWeight)
+
+        val edges = edges(vertices)
+
+        val leftSeparationPoints = HashMap<Int, Int>()
+        val rightSeparationPoints = HashMap<Int, Int>()
+
+        val handlesCount = HashMap<Int, MutableList<Int>>()
+        val handles = HashMap<Int, MutableList<Pathway>>()
 
         init {
             vertices.forEachIndexed { i, v ->
@@ -50,6 +59,56 @@ class PathsOverlay(
                 }
                 if (this@PathsOverlay.entity.reversedEdges[v].size > 1) {
                     leftSeparationPoints[v] = i
+                }
+            }
+            totalEdgesWeight = edges.sumOf { e -> weights.getValue(e) }
+
+            fun walkLeft(stack: MutableList<Int>) {
+                val v = stack.last()
+                if (entity[v].position == 0) {
+                    handles.getOrPut(stack.size - 1) { mutableListOf() }.add(ArrayList(stack))
+                }
+                for (e in entity.reversedEdges[v]) {
+                    if (e.target !in verticesSet) {
+                        stack.add(e.target)
+                        walkLeft(stack)
+                        stack.removeLast()
+                    }
+                }
+            }
+
+            vertices.forEachIndexed { idx, v ->
+                if (idx <= maxHandleLength && entity.reversedEdges[v].isNotEmpty()) {
+                    val oldSize = handles[idx]?.size ?: 0
+                    val stack = mutableListOf(v)
+                    walkLeft(stack)
+                    println("Left: ${(handles[idx]?.size ?: 0) - oldSize}")
+                }
+                if (entity.edges[v].isNotEmpty()) {
+                    val queue = ArrayDeque<Int>().also { it.add(v) }
+                    val visited = HashMap<Int, Int>()
+                    visited[v] = 1
+
+                    while (!queue.isEmpty()) {
+                        val u = queue.removeFirst()
+                        if (entity[u].position == idx + maxHandleLength) {
+                            continue
+                        }
+                        for (e in entity.edges[u]) {
+                            if (e.target in visited.keys) {
+                                visited[e.target] = visited.getValue(e.target) + visited.getValue(u)
+                            } else {
+                                visited[e.target] = visited.getValue(u)
+                                queue.addLast(e.target)
+                            }
+                        }
+                    }
+
+                    for (i in idx..idx + maxHandleLength) {
+                        print(visited.getOrDefault(vertices[i], 0))
+                        print(" ")
+                    }
+                    println()
                 }
             }
         }

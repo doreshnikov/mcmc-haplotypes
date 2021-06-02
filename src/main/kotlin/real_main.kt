@@ -133,7 +133,7 @@ fun main(args: Array<String>) {
     val normalizedGraph = cutGraph.Normalizer().normalize()
     normalizedGraph.precalcPathCounts()
 
-    val model = PathsOverlay(normalizedGraph, DistributionConfig(lambda), 0.001)
+    val model = PathsOverlay(normalizedGraph, DistributionConfig(lambda), 0.001, 10)
     val engine = Engine(normalizedGraph, model)
     val traceBest = true
     engine.simulate(

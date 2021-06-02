@@ -40,7 +40,7 @@ fun main() {
     val normalizedGraph = cutGraph.Normalizer().normalize()
     normalizedGraph.precalcPathCounts()
 
-    val model = PathsOverlay(normalizedGraph, DistributionConfig(haplotypes.size.toDouble()), 0.001)
+    val model = PathsOverlay(normalizedGraph, DistributionConfig(haplotypes.size.toDouble()), 0.001, 10)
     val engine = Engine(normalizedGraph, model)
     engine.simulate(10000)
 
