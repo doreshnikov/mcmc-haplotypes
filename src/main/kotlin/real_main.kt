@@ -10,6 +10,7 @@ import mcmc.modules.graph.PathsOverlay
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.locks.ReentrantLock
+import kotlin.math.sqrt
 import kotlin.streams.toList
 import kotlin.system.measureTimeMillis
 
@@ -69,48 +70,20 @@ fun main(args: Array<String>) {
             it.lines().forEach { line ->
                 val (read, start) = line.split(" ")
                 val s = start.toInt()
-                alignments.add(
-                    PrimitiveAlignment(
-                        s, read,
-                        read == reference.subSequence(s, s + read.length)
+                if (s + read.length <= reference.length) {
+                    alignments.add(
+                        PrimitiveAlignment(
+                            s, read,
+                            read == reference.subSequence(s, s + read.length)
+                        )
                     )
-                )
+                }
             }
         }
     }
 
-    val k = 3
+    val k = 7
     val sortedAlignments = alignments.sortedBy { it.start }
-//    if (sortedAlignments.first().start > 0) {
-//        val start = sortedAlignments.first().start
-//        for (i in sortedAlignments.indices) {
-//            if (sortedAlignments[i].start > start) {
-//                break
-//            }
-//            alignments.add(
-//                PrimitiveAlignment(
-//                    0, reference.substring(0 until start) +
-//                            sortedAlignments[i].read.substring(0 until k - 1), false
-//                )
-//            )
-//        }
-//    }
-//    if (sortedAlignments.last().end < reference.length) {
-//        val end = sortedAlignments.last().end
-//        for (i in sortedAlignments.indices.reversed()) {
-//            if (sortedAlignments[i].end < end) {
-//                break
-//            }
-//            val readSize = sortedAlignments[i].read.length
-//            alignments.add(
-//                PrimitiveAlignment(
-//                    end - k, sortedAlignments[i].read.substring(readSize - k + 1 until readSize) +
-//                            reference.substring(end until reference.length), false
-//                )
-//            )
-//        }
-//    }
-
     val referenceFilter = sortedAlignments.filter { it.full }
     var failed = false
     for (i in 1 until referenceFilter.size) {
@@ -125,31 +98,55 @@ fun main(args: Array<String>) {
     println("Reference check: ${if (failed) "empty or failed" else "passed"}")
 //    if (failed) return
 
-    val lambda = 20.0
+    val lambda = 3.0
     val graph = AlignedDeBruijnGraph.build(alignments, k)
-    println("Paths (mod MAX_LONG): ${graph.validate()}")
+    val oldPaths = graph.validate()
     val cutGraph = graph.cutErrorTails()
-    println("Paths after cutting (mod MAX_LONG): ${cutGraph.validate()}")
+    println("Paths after cut: $oldPaths+${cutGraph.validate() - oldPaths}")
+    println("Vertices count: ${cutGraph.size}")
     val normalizedGraph = cutGraph.Normalizer().normalize()
-    normalizedGraph.precalcPathCounts()
+//    normalizedGraph.precalcPathCounts()
 
-    val model = PathsOverlay(normalizedGraph, DistributionConfig(lambda), 0.001, 10)
-    val engine = Engine(normalizedGraph, model)
+    var results: List<List<Pair<String, Double>>>
     val traceBest = true
-    engine.simulate(
-        1, timeLimit = 20 * 60 * 1000, criteria = "tl",
-        verboseLevel = -1000, traceBest = traceBest
-    )
+    val model = PathsOverlay(normalizedGraph, DistributionConfig(lambda), 0.001, 3 * (k + 1))
+//    val model = PathsOverlay(normalizedGraph, DistributionConfig(lambda), 0.001, 4)
+    val engine = Engine(normalizedGraph, model)
 
-    val results = listOf(model.extractResult(), engine.bestResult!!)
+    if (oldPaths == 1L) {
+        results = listOf(listOf(Pair(reference, 1.0)))
+    } else {
+        try {
+            engine.simulate(
+                1, timeLimit = 6 * 60 * 60 * 1000, criteria = "tl",
+                verboseLevel = -100, traceBest = traceBest, temp = { 1.0 }
+            )
+        } catch (e: Exception) {
+            println(e.message)
+            e.printStackTrace()
+        } finally {
+            model.log.close()
+        }
+
+        results = listOf(model.extractResult(), engine.bestResult!!)
+    }
     val suf = listOf("last", "opt")
     results.forEachIndexed { idx, result ->
         if (!traceBest && idx > 0) return@forEachIndexed
-        File("${dir}/my_${suf[idx]}").printWriter().use { pw ->
+        var name = "${dir}/my_${suf[idx]}"
+        if (model.SHIFT_DELETE != 0.0 || model.SHIFT_NEW != 0.0) {
+            name += "_scale"
+        }
+        File(name).printWriter().use { pw ->
             result.forEach {
                 pw.println("${it.first} ${it.second}")
             }
         }
     }
+
+    File("${dir}/_loglhistory").printWriter().use { pw ->
+        engine.logLHistory.forEach { pw.println(it) }
+    }
+    println("Acceptance rate: ${engine.accepted.toDouble() / (engine.iter + 1)}")
 
 }

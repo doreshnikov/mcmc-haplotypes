@@ -55,13 +55,18 @@ def earth_mover_distance(dist1, dist2):
 
 
 if __name__ == '__main__':
-    os.chdir('../../resources')
     dd = argv[1]
     for d in dd.split('/'):
         print(f'Scoring {d}:')
         expect = read_data(f'{d}/_origin')
         for fname in os.listdir(d):
+            # only new results
+            if not fname.startswith('ph') and not fname.startswith('_'):
+                continue
             if fname[0] == '_' and fname != '_reference':
+                continue
+            fail = map(fname.startswith, ['@', 'reads', 'sequences'])
+            if any(fail) or fname.endswith('.png'):
                 continue
             if fname == '_reference':
                 data = ''.join(list(map(str.strip, open(f'{d}/{fname}').readlines())))

@@ -2,7 +2,9 @@ package mcmc
 
 import mcmc.modules.graph.PathsOverlay
 import utils.Randseed
+import java.lang.Math.pow
 import kotlin.math.ln
+import kotlin.math.pow
 
 open class Engine<E : Any, R : Any>(
     val entity: E,
@@ -12,38 +14,47 @@ open class Engine<E : Any, R : Any>(
     private val distribution = Randseed.INSTANCE.uniformReal(0.0, 1.0)
     var model: Model<E, *, R> = model
         private set
+    val logLHistory = mutableListOf<Pair<Double, Double>>()
+    var accepted = 0
+    var iter = 0
 
     var bestResult: R? = null
     var bestLogLikelihood: Double = Double.NEGATIVE_INFINITY
 
     fun simulate(
         iterations: Int, timeLimit: Int? = null, criteria: String = "iter",
-        verboseLevel: Int = 0, traceBest: Boolean = false
+        verboseLevel: Int = 0, traceBest: Boolean = false, temp: (Int) -> Double = { 1.0 }
     ) {
-        println("Initial logL: ${model.logLikelihood()}")
+        val initial = model.logLikelihood()
+        println("Initial logL: $initial")
+        logLHistory.add(initial to initial)
+
         val startTime = System.currentTimeMillis()
         var iterLimit = iterations
-        var iter = 0
         while (iter < iterLimit) {
             val candidate = model.proposeCandidate()
             val logLD = candidate.logLikelihoodDelta
             val logJD = candidate.logJumpDensity
-            val logAcceptanceRate = logLD + logJD
+//            val logJD = 0.0
+            val logAcceptanceRate = logLD - logJD / temp(iter)
             val accept = ln(distribution.sample()) < logAcceptanceRate
             if (accept) {
                 candidate.accept()
+                logLHistory.add(logLHistory.last().first + logLD to model.logLikelihood())
+                accepted++
                 if (traceBest) {
-                    val logL = model.logLikelihood()
-                    if (logL > bestLogLikelihood) {
-                        bestLogLikelihood = logL
+                    if (logLHistory.last().second > bestLogLikelihood) {
+                        bestLogLikelihood = logLHistory.last().second
                         bestResult = model.extractResult()
                     }
                 }
+            } else {
+                logLHistory.add(logLHistory.last())
             }
             val timePassed = System.currentTimeMillis() - startTime
 
             if (verboseLevel != 0) {
-                val report = """Iteration $iter:
+                fun report() = """Iteration $iter:
  - logL : ${model.logLikelihood()}
  - paths: ${(model as PathsOverlay).paths.size}
  - time : ${timePassed / 1000}s
@@ -51,8 +62,8 @@ open class Engine<E : Any, R : Any>(
  - logJD: $logJD
  - acc  : $accept ${candidate.javaClass.canonicalName.split(".").last()}"""
                 when (verboseLevel) {
-                    1 -> if (accept) println(report)
-                    2 -> println(report)
+                    1 -> if (accept) println(report())
+                    2 -> println(report())
                     else -> if ((iter + 1) % -verboseLevel == 0) {
                         println(
                             """Iteration ${(iter + 1) / -verboseLevel} x ${-verboseLevel}:

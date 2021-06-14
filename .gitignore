@@ -4,5 +4,8 @@ build/
 side-packages/
 
 src/main/resources/
+data/*/
+bachelor_thesis.pdf
+stats
 
 local.properties
