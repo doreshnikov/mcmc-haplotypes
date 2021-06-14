@@ -1,7 +1,11 @@
 .idea/
 .gradle/
 build/
-side-packages/
+
+side-packages/*/*
+!side-packages/aBayesQR-master/run_all.py
+!side-packages/PredictHaplo-1.1/run_all.py
+!side-packages/PredictHaplo-1.1/run_all_errFree.py
 
 src/main/resources/
 data/*/
